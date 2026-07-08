@@ -1,0 +1,42 @@
+# 원본 게임 자산 및 저작권 있는 추출 텍스트 (public 저장소 노출 금지)
+*.iso
+*.xdelta
+db.json
+bnd_toc.json
+tl/
+docs/
+story_glossary.json
+story_idx.json
+shell_idx.json
+shell_all_strings.json
+shell_used_by_font.json
+shell_used_kanji.json
+glossary_cand.json
+strings_raw.json
+text_entries.json
+uniq_jp.json
+uniq_jp2.json
+ui_candidates.json
+ui_to_translate.json
+tl_shell_todo.json
+rangescan_full.json
+fs.json
+114_translate_ui.py
+
+# 빌드 산출물/캐시(재생성 가능)
+allfonts.json
+shellfonts.json
+shellfonts2.json
+kanji_usage.json
+kr_map.json
+kr_map_shell.json
+
+# 1회성 탐색/디버그 스크립트, 로그, 스크린샷, 참고자료
+*_out.txt
+out*.txt
+*.png
+GSTables.cpp
+_delete_list.txt
+__pycache__/
+batches/
+batches_story/
