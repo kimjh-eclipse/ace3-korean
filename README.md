@@ -5,7 +5,8 @@
 > **📦 한국어 패치 다운로드: [Releases](https://github.com/kimjh-eclipse/ace3-korean/releases/latest)**
 > — xdelta 패치 + 적용법 + 검증 해시 동봉. 원본 ISO는 포함되지 않습니다.
 >
-> **📖 기술 문서: [book/](book/SUMMARY.md)** (포맷 명세 · 폰트 시스템 · 엔진 제약 · 주입 기법) — GitHub Wiki에도 동일 게재.
+> **📖 문서 사이트: https://kimjh-eclipse.github.io/ace3-korean/** (다운로드 안내 · 포맷 명세 · 폰트 시스템 · 엔진 제약 · 주입 기법)
+> — 소스는 [book/](book/SUMMARY.md), [Wiki](https://github.com/kimjh-eclipse/ace3-korean/wiki)에도 동일 게재.
 
 ISO를 직접 파싱해 BND3 아카이브 → 텍스트 컨테이너 → 폰트(메인/셸 13종)를 역공학하고,
 번역 삽입 → 폰트 글리프 재생성 → 안전 슬롯 할당 → ISO 재조립 → xdelta 패치 생성까지의
