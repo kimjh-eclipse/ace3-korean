@@ -16,7 +16,27 @@ VK = {"v": 0x56, "x": 0x58, "z": 0x5A, "s": 0x53, "a": 0x41,
 def launch(iso):
     return subprocess.Popen([EXE, "-nofullscreen", "-fastboot", "--", os.path.join(W, iso)])
 
-def find_hwnd():
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+kernel32 = ctypes.windll.kernel32
+
+def _pid_exe(pid):
+    """pid의 실행파일 경로. 접근 실패 시 None (다른 사용자 프로세스 등)."""
+    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return None
+    try:
+        buf = ctypes.create_unicode_buffer(260)
+        size = wintypes.DWORD(260)
+        if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return buf.value
+        return None
+    finally:
+        kernel32.CloseHandle(h)
+
+def find_hwnd(pid=None):
+    """PCSX2 게임 창 탐색. 창 제목만으로는 브라우저 탭 등과 오탐될 수 있어
+    소유 프로세스가 pcsx2-qt.exe인지 반드시 함께 확인한다(2026-07-08 오탐 사고).
+    pid를 알면(launch()의 Popen.pid) 그 프로세스 소유 창만 매칭해 더 정확히 특정."""
     res = []
     @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
     def cb(hwnd, lp):
@@ -27,8 +47,16 @@ def find_hwnd():
             return True
         b = ctypes.create_unicode_buffer(n + 1)
         user32.GetWindowTextW(hwnd, b, n + 1)
-        if "Another Century" in b.value:
-            res.append(hwnd)
+        if "Another Century" not in b.value:
+            return True
+        wpid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
+        if pid is not None and wpid.value != pid:
+            return True
+        exe = _pid_exe(wpid.value)
+        if not exe or "pcsx2" not in exe.lower():
+            return True
+        res.append(hwnd)
         return True
     user32.EnumWindows(cb, 0)
     return res[0] if res else None

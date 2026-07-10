@@ -46,7 +46,10 @@ def try_parse(buf, base):
     if magic != 0x10000 or csize < 0x30 or base + csize > len(buf) + 16:
         return None
     count, tbloff = struct.unpack_from("<II", buf, base + 0x10)
-    if not (0 < count < 100000) or tbloff != 0x28:
+    # tbloff는 보통 0x28이지만, 헤더가 더 큰 변종(0x34 등)도 존재한다(2026-07-08 발견:
+    # 오프닝/미션목표 컨테이너 다수가 이 변종이라 tbloff==0x28 고정 검사에 전량 누락됐었음).
+    # 2026-07-08 2차: 화자명 테이블(count 637, tbloff 0x250)이 0x200 상한에 걸려 상향(0x1000).
+    if not (0 < count < 100000) or not (0x10 <= tbloff <= 0x1000) or tbloff % 4:
         return None
     tbl_end = tbloff + count * 4
     if base + tbl_end > len(buf):
@@ -128,6 +131,16 @@ _SJIS_FIX = {
     "–": "―", "—": "―",  # en/em dash → 전각 대시
     "×": "ｘ" if False else "×",  # × 그대로(SJIS 있음)
     "…": "…",  # … (SJIS 있음)
+    "－": "−", "～": "〜",  # FF0D/FF5E 전각 → SJIS 등가
+    # 2026-07-08: 셸폰트에 글리프 없는 반각 부호 → 전각 등가(폰트 보유) 치환.
+    # 고빈도 . ! 은 크기 보존 위해 치환하지 않고 폰트에 싱글톤 레인지로 주입한다.
+    "~": "〜", ":": "：", "'": "’", "#": "＃",
+    "『": "「", "』": "」",
+    "A": "Ａ", "B": "Ｂ", "C": "Ｃ", "D": "Ｄ", "E": "Ｅ", "F": "Ｆ",
+    "G": "Ｇ", "H": "Ｈ", "I": "Ｉ", "J": "Ｊ", "K": "Ｋ", "L": "Ｌ",
+    "M": "Ｍ", "N": "Ｎ", "O": "Ｏ", "P": "Ｐ", "Q": "Ｑ", "R": "Ｒ",
+    "S": "Ｓ", "T": "Ｔ", "U": "Ｕ", "V": "Ｖ", "W": "Ｗ", "X": "Ｘ",
+    "Y": "Ｙ", "Z": "Ｚ",
 }
 def _sjis_safe_char(ch):
     ch = _SJIS_FIX.get(ch, ch)
@@ -151,6 +164,11 @@ def encode_tagged(text, kr_map=None, kr_assign=None):
             hx = text[i+1:j]
             out += bytes.fromhex(hx)
             i = j + 1
+            continue
+        if kr_map is not None and ch in kr_map:
+            code = kr_map[ch]
+            out += bytes([code >> 8, code & 0xFF])
+            i += 1
             continue
         if "가" <= ch <= "힣":
             code = None

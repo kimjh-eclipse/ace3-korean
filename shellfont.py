@@ -52,39 +52,151 @@ def parse_font(buf, ft):
     return rs, mets
 
 
-def rebuild(buf, ft, syl_codes, glyph_render, keep_kanji=frozenset(), min_w=17):
+HIRA_LO, HIRA_HI = 0x829F, 0x82F1
+
+
+def capacity(buf, ft, keep=frozenset(), min_w=17):
+    """이 폰트가 수용 가능한 최대 한글 수(= 박스 충분한 기증가능 한자+히라가나)."""
+    rs, mets = parse_font(buf, ft)
+    def box_ok(g):
+        u0, v0, u1, v1 = struct.unpack_from("<4f", mets[g], 0)
+        return round((u1 - u0) * W) >= min_w and round((v1 - v0) * H) >= 19
+    n = 0
+    for a, z, gi in rs:
+        for k in range(z - a + 1):
+            c = a + k
+            if (KANJI_LO <= c <= KANJI_HI or HIRA_LO <= c <= HIRA_HI) \
+               and c not in keep and box_ok(gi + k):
+                n += 1
+    return n
+
+
+def inplace_inject(buf, ft, char_codes, glyph_render, add_ranges=None):
+    """구조 무변경 제자리 주입(2026-07-08 3차): 글리프 인덱스/메트릭은 일절 바꾸지
+    않고, char_codes{문자: 기존 한자코드}의 각 코드가 가리키는 글리프 박스에 문자
+    글리프만 덮어그린다. HUD(무전 자막) 렌더러가 원본 레이아웃 기준의 baked
+    코드→글리프 매핑을 쓰기 때문에 재배열 방식(rebuild)은 그쪽에서 깨진다.
+    add_ranges: {부호자기코드: (문자, 기증한자코드)} — 폰트에 글리프가 없는 부호
+    (반각 .! 등)를 1바이트 인코딩 그대로 쓰기 위해, 기증 글리프 칸에 부호를 그리고
+    그 칸을 가리키는 싱글톤 레인지를 '추가'한다(기존 레인지/gi 불변, 정렬 유지).
+    반환: (주입 문자 수, 추가 레인지 수)."""
+    add_ranges = add_ranges or {}
+    rs, mets = parse_font(buf, ft)
+    code_gi = {}
+    for a, z, gi in rs:
+        for k in range(z - a + 1):
+            code_gi[a + k] = gi + k
+    INK, EDGE = 8, 1
+    idx = swz_idx()
+    pix = bytearray(deswizzle4via32(buf[ft["tex"]: ft["tex"] + W * H // 2], W, H, idx))
+
+    def draw(ch, gi):
+        u0, v0, u1, v1 = struct.unpack_from("<4f", mets[gi], 0)
+        bx, by = round(u0 * W), round(v0 * H)
+        bw, bh = round((u1 - u0) * W), round((v1 - v0) * H)
+        if bw < 8 or bh < 8:
+            return False
+        img = glyph_render(ch)
+        gw, gh = img.size
+        pm = img.load()
+        on = [[(pm[xx, yy] >= 128) if (xx < gw and yy < gh) else False
+               for xx in range(bw)] for yy in range(bh)]
+        for yy in range(bh):
+            for xx in range(bw):
+                if on[yy][xx]:
+                    v = INK
+                else:
+                    near = any(on[y2][x2]
+                               for y2 in range(max(0, yy-1), min(bh, yy+2))
+                               for x2 in range(max(0, xx-1), min(bw, xx+2)))
+                    v = EDGE if near else 0
+                pix[(by + yy) * W + (bx + xx)] = v
+        return True
+
+    done = 0
+    for ch, code in char_codes.items():
+        gi = code_gi.get(code)
+        if gi is not None and draw(ch, gi):
+            done += 1
+
+    # 부호 싱글톤 치환: 레인지 테이블에 여유 슬롯이 없으므로(정확히 nranges개),
+    # '한글이 배정되지 않은 기증코드'가 단독으로 차지한 싱글톤 엔트리(a==z)를 찾아
+    # 그 엔트리의 코드만 부호 자기코드로 바꾼다(gi 그대로, 테이블 크기 불변).
+    added = 0
+    if add_ranges:
+        used_codes = set(char_codes.values())
+        singles = [i for i, (a, z, gi) in enumerate(rs)
+                   if a == z and (KANJI_LO <= a <= KANJI_HI or HIRA_LO <= a <= HIRA_HI)
+                   and a not in used_codes]
+        new_rs = [list(r) for r in rs]
+        si = 0
+        for own_code, (ch, _donor) in sorted(add_ranges.items()):
+            if own_code in code_gi:
+                continue  # 이미 폰트에 있음
+            if si >= len(singles):
+                break
+            ent = singles[si]; si += 1
+            gi = new_rs[ent][2]
+            if not draw(ch, gi):
+                continue
+            new_rs[ent][0] = new_rs[ent][1] = own_code
+            added += 1
+        if added:
+            new_rs.sort(key=lambda r: r[0])
+            fb = ft["fb"]
+            o = fb + 0x2c
+            for a, z, gi in new_rs:
+                struct.pack_into("<III", buf, o, a, z, gi); o += 12
+
+    buf[ft["tex"]: ft["tex"] + W * H // 2] = swizzle4via32(pix, W, H, idx)
+    return done, added
+
+
+def rebuild(buf, ft, syl_codes, glyph_render, keep_kanji=frozenset(), min_w=17,
+            extra=None):
     """buf(bytearray, 엔트리 전체)를 제자리 수정.
     syl_codes: {음절: 전역코드} — 이 폰트가 담아야 할 한글(부분집합).
-    keep_kanji: 보존할 한자 SJIS 코드 집합(미번역 문자열이 쓰는 것). 나머지 한자는 기증.
+    extra: {코드: 문자} — 한글 외 주입할 글리프(반각 문장부호 .!~ 등, 원본 폰트에
+    글리프가 없는 문자). 코드는 그 문자의 SJIS 코드.
+    keep_kanji: 보존할 SJIS 코드 집합(미번역 문자열이 쓰는 한자/가나). 나머지
+    한자+히라가나는 기증(2026-07-08: 대사·브리핑·HUD 전부 셸폰트 렌더 확정으로
+    전 음절 수용 위해 히라가나도 기증. 가타카나는 화자명 표기용으로 보존).
     glyph_render(ch)->PIL 'L' 이미지. 반환: 사용한 {음절: 코드}."""
+    extra = extra or {}
     rs, mets = parse_font(buf, ft)
     ng, met_off, fb = ft["nglyph"], ft["met"], ft["fb"]
     tbl_cap = (met_off - (fb + 0x2c)) // 12
 
-    # 한자 코드→글리프 인덱스, 박스 크기
-    kanji_gi = {}
+    # 전 코드→글리프 인덱스
+    code_gi = {}
     for a, z, gi in rs:
-        if KANJI_LO <= a and z <= KANJI_HI:
-            for k in range(z - a + 1):
-                kanji_gi[a + k] = gi + k
+        for k in range(z - a + 1):
+            code_gi[a + k] = gi + k
 
     def box_ok(g):
         u0, v0, u1, v1 = struct.unpack_from("<4f", mets[g], 0)
         return round((u1 - u0) * W) >= min_w and round((v1 - v0) * H) >= 19
 
-    # 기증 후보 = 보존대상 아닌 한자 중 박스 충분
-    donor_codes = [c for c in sorted(kanji_gi)
-                   if c not in keep_kanji and box_ok(kanji_gi[c])]
-    if len(donor_codes) < len(syl_codes):
-        raise RuntimeError(f"id{ft['id']} 기증 부족: {len(donor_codes)} < {len(syl_codes)}")
-    donors = [kanji_gi[c] for c in donor_codes[:len(syl_codes)]]
+    def donatable(c):
+        return (KANJI_LO <= c <= KANJI_HI or HIRA_LO <= c <= HIRA_HI) \
+               and c not in keep_kanji and box_ok(code_gi[c])
 
-    # 보존 한자 = keep_kanji ∩ 이 폰트 한자
-    keep_codes = sorted(c for c in kanji_gi if c in keep_kanji)
+    # 주입 코드 통합: 한글 + 부호. 부호 코드가 기존 레인지에 있으면(=폰트에 이미
+    # 있는 코드) 주입 대상에서 제외(겹침 방지). 없으면 신규 코드로 주입.
+    inject = {syl_codes[s]: s for s in syl_codes}
+    for c, ch in extra.items():
+        if c not in code_gi:
+            inject[c] = ch
+    inject_codes = sorted(inject)
 
-    # 한글 코드 정렬
-    syls_sorted = sorted(syl_codes, key=lambda s: syl_codes[s])
-    codes = [syl_codes[s] for s in syls_sorted]
+    donor_codes = [c for c in sorted(code_gi) if donatable(c)]
+    if len(donor_codes) < len(inject_codes):
+        raise RuntimeError(f"id{ft['id']} 기증 부족: {len(donor_codes)} < {len(inject_codes)}")
+    donors = [code_gi[c] for c in donor_codes[:len(inject_codes)]]
+    donated = set(donor_codes)  # 기증 대상 전체(초과분 포함)는 레인지에서 제거
+
+    # 보존 코드 = 기증 안 하는 모든 원본 코드
+    keep_codes = sorted(c for c in code_gi if c not in donated)
     mapping = dict(syl_codes)
 
     def runs_from_codes(code_list, val_for):
@@ -98,12 +210,8 @@ def rebuild(buf, ft, syl_codes, glyph_render, keep_kanji=frozenset(), min_w=17):
                 out.append([c, c, [val_for(c)]])
         return out
 
-    # 이벤트: 비한자 보존 레인지 + 보존 한자 런 + 한글 런
-    kept_nonkanji = [r for r in rs if r[1] < KANJI_LO or r[0] > KANJI_HI]
-    events = [("keep", a, z, gi) for a, z, gi in kept_nonkanji]
-    events += [("kanji", a, z, codes_) for a, z, codes_ in runs_from_codes(keep_codes, lambda c: c)]
-    kr_runs = runs_from_codes(codes, lambda c: syls_sorted[codes.index(c)])
-    events += [("kr", a, z, syls) for a, z, syls in kr_runs]
+    events = [("orig", a, z, codes_) for a, z, codes_ in runs_from_codes(keep_codes, lambda c: c)]
+    events += [("inj", a, z, chs) for a, z, chs in runs_from_codes(inject_codes, lambda c: inject[c])]
     events.sort(key=lambda ev: ev[1])
     for (_, _, z1, _), (_, a2, _, _) in zip(events, events[1:]):
         assert z1 < a2, f"id{ft['id']} 레인지 겹침 {z1:#x}>={a2:#x}"
@@ -114,24 +222,19 @@ def rebuild(buf, ft, syl_codes, glyph_render, keep_kanji=frozenset(), min_w=17):
     di = 0
     for ev in events:
         kind, a, z, payload = ev
-        if kind == "keep":
-            gi = payload
+        if kind == "orig":
             new_ranges.append((a, z, len(new_mets)))
-            for k in range(z - a + 1):
-                new_mets.append(mets[gi + k])
-        elif kind == "kanji":
-            new_ranges.append((a, z, len(new_mets)))
-            for c in payload:            # 보존 한자: 원본 글리프 그대로
-                new_mets.append(mets[kanji_gi[c]])
+            for c in payload:            # 보존: 원본 글리프 그대로
+                new_mets.append(mets[code_gi[c]])
         else:
             new_ranges.append((a, z, len(new_mets)))
-            for syl in payload:
+            for ch in payload:
                 donor = donors[di]; di += 1
                 u0, v0, u1, v1 = struct.unpack_from("<4f", mets[donor], 0)
                 new_mets.append(struct.pack("<4f4H", u0, v0, u1, v1, 0, 16, 17, 0))
                 bx, by = round(u0 * W), round(v0 * H)
                 bw, bh = round((u1 - u0) * W), round((v1 - v0) * H)
-                tex_jobs.append(((bx, by, bw, bh), syl))
+                tex_jobs.append(((bx, by, bw, bh), ch))
 
     assert len(new_ranges) <= tbl_cap, f"id{ft['id']} 레인지 초과 {len(new_ranges)}>{tbl_cap}"
     assert len(new_mets) <= ng, f"id{ft['id']} 글리프 초과 {len(new_mets)}>{ng}"
