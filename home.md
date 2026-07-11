@@ -22,13 +22,13 @@ PS2 **『Another Century's Episode 3: The Final』**(SLPS-25784, 반다이남코
 xdelta3 호환 도구(xdelta3 CLI, Delta Patcher, xdeltaUI 등)로 일본판 원본 ISO에 적용합니다.
 
 ```bash
-xdelta3 -d -s "원본.iso" ACE3_kr_patch_v20260711b.xdelta "ACE3_KR.iso"
+xdelta3 -d -s "원본.iso" ACE3_kr_patch_v20260712.xdelta "ACE3_KR.iso"
 ```
 
 | 검증 | SHA256 |
 |---|---|
 | 원본 ISO | `5264079d36d953f464b166052e1ddea9be22a84c30a9333da24b8e1471311705` |
-| 패치 적용 결과 | `d2e841f2adc117d8704031051dac2555c7b554f1f90dfcdedb71a81140fa4913` |
+| 패치 적용 결과 | `cf0f3dc3aa5777af15c1471bff8172837b29a9322709599c91f8e46a02903550` |
 
 ## 번역 범위
 
@@ -44,6 +44,7 @@ xdelta3 -d -s "원본.iso" ACE3_kr_patch_v20260711b.xdelta "ACE3_KR.iso"
 ## 알려진 제한
 
 - 일시정지 커맨드 리스트의 일부 무기명은 별도 데이터 경로로 표시되어 원문이 깨져 보일 수 있습니다.
+- 전투 후 대화 화면에서 희귀 음절 일부(전체 출현의 약 5%)와 극히 일부 문자열의 쉼표·물음표는 ？로 표시될 수 있습니다.
 
 - 일부 미션의 소형 자막 폰트는 수용 한계로 한글 일부만 표시될 수 있습니다.
 - 극소수 장문(4개 섹션)은 컨테이너 용량 한계로 띄어쓰기가 축약됩니다.
