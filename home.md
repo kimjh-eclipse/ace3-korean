@@ -22,13 +22,13 @@ PS2 **『Another Century's Episode 3: The Final』**(SLPS-25784, 반다이남코
 xdelta3 호환 도구(xdelta3 CLI, Delta Patcher, xdeltaUI 등)로 일본판 원본 ISO에 적용합니다.
 
 ```bash
-xdelta3 -d -s "원본.iso" ACE3_kr_patch_v20260712b.xdelta "ACE3_KR.iso"
+xdelta3 -d -s "원본.iso" ACE3_kr_patch_v20260714.xdelta "ACE3_KR.iso"
 ```
 
 | 검증 | SHA256 |
 |---|---|
 | 원본 ISO | `5264079d36d953f464b166052e1ddea9be22a84c30a9333da24b8e1471311705` |
-| 패치 적용 결과 | `7c4463a15720f9423278b246e818e851b5c9fc58029cb520614edc63ec85f74b` |
+| 패치 적용 결과 | `f2a17e73227892e724900a8bfba3c740d67b55856c2664edfb6bb788ab30ba11` |
 
 ## 번역 범위
 
